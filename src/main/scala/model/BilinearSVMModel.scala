@@ -1,6 +1,7 @@
 package model
 
 import model.gradient.BilinearSVMGradient
+import org.apache.hadoop.fs.{FileSystem, Path}
 import org.apache.spark.SparkContext
 import org.apache.spark.rdd.RDD
 import org.apache.spark.mllib.linalg.{DenseMatrix, Vector, Vectors}
@@ -39,6 +40,8 @@ class BilinearSVMModel(val weightMatrix: DenseMatrix,
 
   def save(path: String): Unit = {
     val sc: SparkContext = SparkContext.getOrCreate()
+    val fs = FileSystem.get(sc.hadoopConfiguration)
+    fs.delete(new Path(path), true)
     sc.parallelize(Seq(ModelData(weightMatrix = weightMatrix, intercept = intercept)), 1)
       .saveAsObjectFile(path)
 

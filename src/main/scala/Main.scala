@@ -2,6 +2,7 @@ import model.{BilinearSVM, BilinearSVMModel}
 import org.apache.spark.mllib.evaluation.{BinaryClassificationMetrics, MulticlassMetrics}
 import org.apache.spark.mllib.feature.StandardScaler
 import org.apache.spark.mllib.linalg.{Vector, Vectors}
+import org.apache.spark.mllib.regression.LabeledPoint
 import org.apache.spark.rdd.RDD
 import org.apache.spark.{SparkConf, SparkContext}
 
@@ -9,15 +10,14 @@ object Main {
   def main(args: Array[String]): Unit = {
     val conf = new SparkConf()
       .setAppName("BilinearSVMTest")
-      .set("spark.driver.memory", "8g")
       .setMaster("local[*]")
     val sc = new SparkContext(conf)
     sc.setLogLevel("WARN")
 
     // Generate synthetic data
     val numSamples = 100_000
-    val numFeatures = 4 // Number of features in x1 and x2
-    val data: RDD[(Double, Vector)] = generateSimilarData(sc, numSamples, numFeatures)
+    val numFeatures = 5 // Number of features in x1 and x2
+    val data: RDD[(Double, Vector)] = generateSimilarDataSingleVector(sc, numSamples, numFeatures)
 
     val scaler = new StandardScaler(false, false)
 
@@ -31,6 +31,7 @@ object Main {
     val scalerModelBc = sc.broadcast(scalerModel)
 
     val trainingScaled = training.mapValues(v => scalerModelBc.value.transform(v))
+      .map(tpl => LabeledPoint(tpl._1, tpl._2))
       .cache()
 
     val test = splitData(1)
@@ -45,7 +46,7 @@ object Main {
     trainingScaled.count()
     val t1 = System.currentTimeMillis()
 
-    val bilinearSVM = new BilinearSVM(numFeatures)
+    val bilinearSVM = new BilinearSVM()
       .setRegParam(regParam)
       .setStepSize(stepSize)
       .setNumIterations(numIterations)
@@ -140,6 +141,34 @@ object Main {
       val x1 = Vectors.dense(gamArr)
       val x2 = Vectors.dense(gamArr)
       val features = Vectors.dense(x1.toArray ++ x2.toArray)
+      (-1.0, features)
+    }
+
+    sc.parallelize(positiveSamples ++ negativeSamples, sc.defaultParallelism)
+  }
+
+  private def generateSimilarDataSingleVector(sc: SparkContext, numSamples: Int, numFeatures: Int): RDD[(Double, Vector)] = {
+    val rnd = new scala.util.Random(42)
+    import breeze.stats.distributions._
+    import Rand.VariableSeed.randBasis
+    randBasis.generator.setSeed(42)
+    val exp = Exponential(1.0)
+    val gamma = Gamma(1, 2)
+    val beta = Beta(1, 3)
+    val poi = Poisson(2)
+    val poi2 = Poisson(1)
+
+    // Generate positive samples
+    val positiveSamples = (1 to numSamples / 2).map { _ =>
+      val expArr = beta.sample(numFeatures).toArray.map(_.toDouble).map(_ - 0)
+      val features = Vectors.dense(expArr)
+      (1.0, features)
+    }
+
+    // Generate negative samples
+    val negativeSamples = (1 to numSamples / 2).map { _ =>
+      val gamArr = gamma.sample(numFeatures).toArray.map(_.toDouble).map(_ - 0)
+      val features = Vectors.dense(gamArr)
       (-1.0, features)
     }
 

@@ -8,25 +8,23 @@ class BilinearSVMGradient(val numFeatures: Int) extends Gradient {
   private lazy val blas: BLAS = BLAS.getInstance()
 
   override def compute(data: Vector, label: Double, weights: Vector): (Vector, Double) = {
+    if (data.size == numFeatures) {
+      val x = data.toArray
+      val xLen = x.length
+      val aArray = weights.toArray.slice(0, xLen * xLen)
+      val b = weights(weights.size - 1)
+      val prediction = BilinearSVMGradient.xTAx(x, aArray) + b
 
-    numFeatures match {
-      case -1 =>
-        val x = data.toArray
-        val xLen = x.length
-        val aArray = weights.toArray.slice(0, xLen * xLen)
-        val b = weights(weights.size - 1)
-        val prediction = BilinearSVMGradient.xTAx(x, aArray) + b
+      if (label * prediction < 1) {
+        val gradientA = aArray.clone()
+        blas.dger(xLen, xLen, -label, x, 1, x, 1, gradientA, numFeatures)
+        val gradient = Vectors.dense(gradientA ++ Array(-label))
 
-        if (label * prediction < 1) {
-          val gradientA = aArray.clone()
-          blas.dger(xLen, xLen, -label, x, 1, x, 1, gradientA, numFeatures)
-          val gradient = Vectors.dense(gradientA ++ Array(-label))
-
-          (gradient, 1 - label * prediction)
-        } else {
-          (Vectors.zeros(weights.size), 0.0)
-        }
-      case _ =>
+        (gradient, 1 - label * prediction)
+      } else {
+        (Vectors.zeros(weights.size), 0.0)
+      }
+    } else {
         val splitIndex = numFeatures
         val aArray = weights.toArray.slice(0, numFeatures * numFeatures)
         val x1 = data.toArray.slice(0, splitIndex)

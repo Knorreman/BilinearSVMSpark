@@ -3,10 +3,11 @@ package model
 import model.gradient.BilinearSVMGradient
 import model.updater.BilinearSVMUpdater
 import org.apache.spark.mllib.linalg.{DenseMatrix, Vector, Vectors}
-import org.apache.spark.mllib.optimization.{GradientDescent, LBFGS}
+import org.apache.spark.mllib.optimization.{GradientDescent, L1Updater, LBFGS, SquaredL2Updater}
+import org.apache.spark.mllib.regression.LabeledPoint
 import org.apache.spark.rdd.RDD
 
-class BilinearSVM(var numFeatures: Int = -1,
+class BilinearSVM(private var numFeatures: Int = -1,
                    private var numIterations: Int = 100,
                    private var stepSize: Double = 0.01,
                    private var regParam: Double = 0.1) extends Serializable {
@@ -26,14 +27,27 @@ class BilinearSVM(var numFeatures: Int = -1,
     this
   }
 
-  def run(data: RDD[(Double, Vector)]): BilinearSVMModel = {
+  def setNumFeatures(n: Int): BilinearSVM = {
+    this.numFeatures = n
+    this
+  }
+
+  def run(data: RDD[LabeledPoint]): BilinearSVMModel = {
+    if (numFeatures < 0) {
+      numFeatures = data.map(_.features.size).first()
+    }
+
     BilinearSVM.trainBilinearSVMLBFGS(data,
       numFeatures,
       numIterations,
       regParam)
   }
 
-  def runSGD(data: RDD[(Double, Vector)]): BilinearSVMModel = {
+  def runSGD(data: RDD[LabeledPoint]): BilinearSVMModel = {
+    if (numFeatures < 0) {
+      numFeatures = data.map(_.features.size).first()
+    }
+
     BilinearSVM.trainBilinearSVMSGD(data,
       numFeatures,
       numIterations,
@@ -44,7 +58,7 @@ class BilinearSVM(var numFeatures: Int = -1,
 
 object BilinearSVM {
 
-  private def trainBilinearSVMLBFGS(data: RDD[(Double, Vector)],
+  private def trainBilinearSVMLBFGS(data: RDD[LabeledPoint],
                                     numFeatures: Int,
                                     numIterations: Int,
                                     regParam: Double
@@ -53,7 +67,8 @@ object BilinearSVM {
 
     val initialWeights = Vectors.zeros(numFeatures * numFeatures + 1)
 
-    val (modelWeights, losses) = LBFGS.runLBFGS(data = data,
+    val dataTuple = data.map(lp => (lp.label, lp.features))
+    val (modelWeights, losses) = LBFGS.runLBFGS(dataTuple,
       gradient = gradient,
       updater = new BilinearSVMUpdater(),
       10,
@@ -68,7 +83,7 @@ object BilinearSVM {
     new BilinearSVMModel(A, b)
   }
 
-  private def trainBilinearSVMSGD(data: RDD[(Double, Vector)],
+  private def trainBilinearSVMSGD(data: RDD[LabeledPoint],
                                   numFeatures: Int,
                                   numIterations: Int,
                                   stepSize: Double,
@@ -77,8 +92,8 @@ object BilinearSVM {
     val gradient = new BilinearSVMGradient(numFeatures)
 
     val initialWeights = Vectors.zeros(numFeatures * numFeatures + 1)
-
-    val (modelWeights, losses) = GradientDescent.runMiniBatchSGD(data,
+    val dataTuple = data.map(lp => (lp.label, lp.features))
+    val (modelWeights, losses) = GradientDescent.runMiniBatchSGD(dataTuple,
       gradient,
       new BilinearSVMUpdater(),
       stepSize,
